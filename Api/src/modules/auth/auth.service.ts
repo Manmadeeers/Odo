@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -21,18 +22,24 @@ import { MailService } from '../mail/mail.service.js';
 import type {
   AuthenticationResult,
   EmailConfirmationResult,
+  ForgotPasswordResult,
+  ResetPasswordResult,
 } from './auth.types.js';
 import type { LoginDto } from './dto/login.dto.js';
 import type { RegisterDto } from './dto/register.dto.js';
 import { AuthSession } from './entities/auth-session.entity.js';
 import { EmailVerificationToken } from './entities/email-verification-token.entity.js';
+import { PasswordResetToken } from './entities/password-reset-token.entity.js';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private readonly accessTokenTtlSeconds: number;
   private readonly refreshTokenTtlMilliseconds: number;
   private readonly emailVerificationTtlMilliseconds: number;
   private readonly emailVerificationUrl: string;
+  private readonly passwordResetTtlMilliseconds: number;
+  private readonly passwordResetUrl: string;
 
   constructor(
     private readonly usersService: UsersService,
@@ -61,6 +68,12 @@ export class AuthService {
     this.emailVerificationUrl = configService.getOrThrow<string>(
       'EMAIL_VERIFICATION_URL',
     );
+    this.passwordResetTtlMilliseconds =
+      configService.getOrThrow<number>('PASSWORD_RESET_TTL_MINUTES') *
+      60 *
+      1000;
+    this.passwordResetUrl =
+      configService.getOrThrow<string>('PASSWORD_RESET_URL');
   }
 
   async register(input: RegisterDto): Promise<AuthenticationResult> {
@@ -161,6 +174,86 @@ export class AuthService {
     return this.issueTokens(user);
   }
 
+  async forgotPassword(email: string): Promise<ForgotPasswordResult> {
+    const response: ForgotPasswordResult = {
+      message:
+        'If an account exists for that email, a password reset link has been sent',
+    };
+    const user = await this.usersService.findByEmail(email);
+
+    if (!user) {
+      return response;
+    }
+
+    const token = await this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(PasswordResetToken);
+      await repository.delete({ userId: user.id });
+
+      const token = randomBytes(32).toString('base64url');
+      await repository.save(
+        repository.create({
+          userId: user.id,
+          tokenHash: this.hashToken(token),
+          expiresAt: new Date(Date.now() + this.passwordResetTtlMilliseconds),
+          consumedAt: null,
+        }),
+      );
+
+      return token;
+    });
+
+    try {
+      await this.sendPasswordResetEmail(user.email, token);
+    } catch (error: unknown) {
+      this.logger.error(
+        'Failed to send a password reset email',
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+
+    return response;
+  }
+
+  async resetPassword(
+    token: string,
+    newPassword: string,
+  ): Promise<ResetPasswordResult> {
+    const passwordHash = await this.passwordHasher.hash(newPassword);
+    const tokenHash = this.hashToken(token);
+
+    await this.dataSource.transaction(async (manager) => {
+      const resetToken = await manager
+        .getRepository(PasswordResetToken)
+        .createQueryBuilder('resetToken')
+        .setLock('pessimistic_write')
+        .where('resetToken.tokenHash = :tokenHash', { tokenHash })
+        .getOne();
+
+      if (
+        !resetToken ||
+        resetToken.consumedAt ||
+        resetToken.expiresAt.getTime() <= Date.now()
+      ) {
+        throw new BadRequestException(
+          'Invalid or expired password reset token',
+        );
+      }
+
+      const resetAt = new Date();
+      await manager
+        .getRepository(User)
+        .update({ id: resetToken.userId }, { passwordHash });
+      await manager
+        .getRepository(PasswordResetToken)
+        .update({ id: resetToken.id }, { consumedAt: resetAt });
+      await manager
+        .getRepository(AuthSession)
+        .update({ userId: resetToken.userId }, { revokedAt: resetAt });
+    });
+
+    return { message: 'Password reset successfully' };
+  }
+
   private async issueTokens(
     user: User,
     manager?: EntityManager,
@@ -230,6 +323,23 @@ export class AuthService {
       subject: 'Verify your Odo email address',
       text: `Verify your Odo email address by opening this link: ${url}`,
       html: `<p>Welcome to Odo.</p><p><a href="${htmlUrl}">Verify your email address</a></p>`,
+    });
+  }
+
+  private async sendPasswordResetEmail(
+    email: string,
+    token: string,
+  ): Promise<void> {
+    const resetUrl = new URL(this.passwordResetUrl);
+    resetUrl.searchParams.set('token', token);
+    const url = resetUrl.toString();
+    const htmlUrl = url.replaceAll('&', '&amp;');
+
+    await this.mailService.send({
+      to: email,
+      subject: 'Reset your Odo password',
+      text: `Reset your Odo password by opening this link: ${url}`,
+      html: `<p>We received a request to reset your Odo password.</p><p><a href="${htmlUrl}">Reset your password</a></p><p>If you did not request this, you can ignore this email.</p>`,
     });
   }
 

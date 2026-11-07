@@ -9,6 +9,7 @@ import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module.js';
 import { AuthSession } from '../src/modules/auth/entities/auth-session.entity.js';
 import { EmailVerificationToken } from '../src/modules/auth/entities/email-verification-token.entity.js';
+import { PasswordResetToken } from '../src/modules/auth/entities/password-reset-token.entity.js';
 import { MailService } from '../src/modules/mail/mail.service.js';
 import { User } from '../src/modules/users/entities/user.entity.js';
 
@@ -29,6 +30,7 @@ describe('Authentication endpoints (e2e)', () => {
   let dataSource: DataSource;
   const email = `auth-${randomUUID()}@example.com`;
   const password = 'correct horse battery staple';
+  const newPassword = 'new correct horse battery staple';
   const sendMail = vi.fn().mockResolvedValue(undefined);
 
   beforeAll(async () => {
@@ -185,6 +187,100 @@ describe('Authentication endpoints (e2e)', () => {
     expect(invalidLoginResponse.statusCode).toBe(401);
     expect(invalidLoginResponse.json()).toMatchObject({
       message: 'Invalid email or password',
+    });
+
+    const unknownForgotPasswordResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/forgot-password',
+      payload: { email: `missing-${randomUUID()}@example.com` },
+    });
+    expect(unknownForgotPasswordResponse.statusCode).toBe(202);
+    expect(unknownForgotPasswordResponse.json()).toEqual({
+      message:
+        'If an account exists for that email, a password reset link has been sent',
+    });
+    expect(sendMail).toHaveBeenCalledOnce();
+
+    const forgotPasswordResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/forgot-password',
+      payload: { email: `  ${email.toUpperCase()}  ` },
+    });
+    expect(forgotPasswordResponse.statusCode).toBe(202);
+    expect(forgotPasswordResponse.json()).toEqual(
+      unknownForgotPasswordResponse.json(),
+    );
+    expect(sendMail).toHaveBeenCalledTimes(2);
+
+    const resetMail = sendMail.mock.calls[1]?.[0] as
+      { to: string; text: string } | undefined;
+    expect(resetMail?.to).toBe(email);
+    const resetUrl = resetMail?.text.match(/https?:\/\/\S+$/)?.[0];
+    expect(resetUrl).toBeDefined();
+    const resetToken = new URL(resetUrl!).searchParams.get('token');
+    expect(resetToken).toBeTypeOf('string');
+
+    const storedResetToken = await dataSource
+      .getRepository(PasswordResetToken)
+      .createQueryBuilder('resetToken')
+      .addSelect('resetToken.tokenHash')
+      .where('resetToken.userId = :userId', {
+        userId: registration.user.id,
+      })
+      .getOneOrFail();
+    expect(storedResetToken.tokenHash).toBe(
+      createHash('sha256').update(resetToken!).digest('hex'),
+    );
+    expect(storedResetToken.tokenHash).not.toBe(resetToken);
+
+    const invalidResetResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/reset-password',
+      payload: { token: randomUUID(), newPassword },
+    });
+    expect(invalidResetResponse.statusCode).toBe(400);
+
+    const resetResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/reset-password',
+      payload: { token: resetToken, newPassword },
+    });
+    expect(resetResponse.statusCode).toBe(200);
+    expect(resetResponse.json()).toEqual({
+      message: 'Password reset successfully',
+    });
+
+    const reusedResetResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/reset-password',
+      payload: { token: resetToken, newPassword },
+    });
+    expect(reusedResetResponse.statusCode).toBe(400);
+
+    const sessions = await dataSource
+      .getRepository(AuthSession)
+      .findBy({ userId: registration.user.id });
+    expect(sessions.length).toBeGreaterThan(0);
+    expect(sessions.every((session) => session.revokedAt instanceof Date)).toBe(
+      true,
+    );
+
+    const oldPasswordLoginResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email, password },
+    });
+    expect(oldPasswordLoginResponse.statusCode).toBe(401);
+
+    const newPasswordLoginResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email, password: newPassword },
+    });
+    expect(newPasswordLoginResponse.statusCode).toBe(200);
+    expect(newPasswordLoginResponse.json<AuthResponse>().user).toMatchObject({
+      id: registration.user.id,
+      emailVerified: true,
     });
   });
 

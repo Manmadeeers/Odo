@@ -15,3 +15,11 @@ export interface AuthenticationResult {
 export interface EmailConfirmationResult {
   message: 'Email confirmed';
 }
+
+export interface ForgotPasswordResult {
+  message: 'If an account exists for that email, a password reset link has been sent';
+}
+
+export interface ResetPasswordResult {
+  message: 'Password reset successfully';
+}

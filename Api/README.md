@@ -38,6 +38,8 @@ Authentication endpoints:
 POST /auth/register
 POST /auth/login
 POST /auth/confirm-email
+POST /auth/forgot-password
+POST /auth/reset-password
 ```
 
 Registering sends an email containing a verification link. Submit the link's
@@ -45,6 +47,22 @@ Registering sends an email containing a verification link. Submit the link's
 
 ```json
 { "token": "<email verification token>" }
+```
+
+Password recovery starts with an email address and always returns the same
+accepted response, whether or not an account exists:
+
+```json
+{ "email": "rider@example.com" }
+```
+
+Submit the token from the reset email together with the new password:
+
+```json
+{
+  "token": "<password reset token>",
+  "newPassword": "at least 12 characters"
+}
 ```
 
 ## Email

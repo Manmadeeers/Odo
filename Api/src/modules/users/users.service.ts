@@ -33,6 +33,10 @@ export class UsersService {
       .getOne();
   }
 
+  findByEmail(email: string): Promise<User | null> {
+    return this.usersRepository.findOneBy({ email });
+  }
+
   async updatePasswordHash(id: string, passwordHash: string): Promise<void> {
     await this.usersRepository.update({ id }, { passwordHash });
   }

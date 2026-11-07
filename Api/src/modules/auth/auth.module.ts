@@ -9,11 +9,16 @@ import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { AuthSession } from './entities/auth-session.entity.js';
 import { EmailVerificationToken } from './entities/email-verification-token.entity.js';
+import { PasswordResetToken } from './entities/password-reset-token.entity.js';
 
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([AuthSession, EmailVerificationToken]),
+    TypeOrmModule.forFeature([
+      AuthSession,
+      EmailVerificationToken,
+      PasswordResetToken,
+    ]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

@@ -4,13 +4,23 @@ import { AuthService } from './auth.service.js';
 import type {
   AuthenticationResult,
   EmailConfirmationResult,
+  ForgotPasswordResult,
+  ResetPasswordResult,
 } from './auth.types.js';
 import {
   confirmEmailSchema,
   type ConfirmEmailDto,
 } from './dto/confirm-email.dto.js';
 import { loginSchema, type LoginDto } from './dto/login.dto.js';
+import {
+  forgotPasswordSchema,
+  type ForgotPasswordDto,
+} from './dto/forgot-password.dto.js';
 import { registerSchema, type RegisterDto } from './dto/register.dto.js';
+import {
+  resetPasswordSchema,
+  type ResetPasswordDto,
+} from './dto/reset-password.dto.js';
 
 @Controller('auth')
 export class AuthController {
@@ -40,5 +50,23 @@ export class AuthController {
     @Body({ schema: confirmEmailSchema }) input: ConfirmEmailDto,
   ): Promise<EmailConfirmationResult> {
     return this.authService.confirmEmail(input.token);
+  }
+
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  forgotPassword(
+    @Body({ schema: forgotPasswordSchema }) input: ForgotPasswordDto,
+  ): Promise<ForgotPasswordResult> {
+    return this.authService.forgotPassword(input.email);
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  resetPassword(
+    @Body({ schema: resetPasswordSchema }) input: ResetPasswordDto,
+  ): Promise<ResetPasswordResult> {
+    return this.authService.resetPassword(input.token, input.newPassword);
   }
 }
