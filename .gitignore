@@ -3,9 +3,14 @@ node_modules/
 
 # Build output and caches
 dist/
+dist-ssr/
 coverage/
 .cache/
+.vite/
 *.tsbuildinfo
+
+# Tool-specific local overrides
+*.local
 
 # Environment files and local secrets
 .env
