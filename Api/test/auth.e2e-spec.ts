@@ -144,11 +144,10 @@ describe('Authentication endpoints (e2e)', () => {
       url: '/auth/login',
       payload: { email, password },
     });
-    const login = loginResponse.json<AuthResponse>();
-    expect(loginResponse.statusCode).toBe(200);
-    expect(login.user.id).toBe(registration.user.id);
-    expect(login.accessToken).not.toBe(registration.accessToken);
-    expect(login.refreshToken).not.toBe(registration.refreshToken);
+    expect(loginResponse.statusCode).toBe(403);
+    expect(loginResponse.json()).toMatchObject({
+      message: 'Email address is not verified',
+    });
 
     const invalidConfirmationResponse = await app.inject({
       method: 'POST',
@@ -178,6 +177,20 @@ describe('Authentication endpoints (e2e)', () => {
       .getRepository(User)
       .findOneByOrFail({ id: registration.user.id });
     expect(confirmedUser.emailVerifiedAt).toBeInstanceOf(Date);
+
+    const verifiedLoginResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email, password },
+    });
+    const verifiedLogin = verifiedLoginResponse.json<AuthResponse>();
+    expect(verifiedLoginResponse.statusCode).toBe(200);
+    expect(verifiedLogin.user).toMatchObject({
+      id: registration.user.id,
+      emailVerified: true,
+    });
+    expect(verifiedLogin.accessToken).not.toBe(registration.accessToken);
+    expect(verifiedLogin.refreshToken).not.toBe(registration.refreshToken);
 
     const invalidLoginResponse = await app.inject({
       method: 'POST',

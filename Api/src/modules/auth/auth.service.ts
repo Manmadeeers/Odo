@@ -3,6 +3,7 @@ import { PasswordHasher } from '@nestjs/authentication';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -162,6 +163,10 @@ export class AuthService {
 
     if (!user || !passwordMatches) {
       throw new UnauthorizedException('Invalid email or password');
+    }
+
+    if (!user.emailVerifiedAt) {
+      throw new ForbiddenException('Email address is not verified');
     }
 
     if (this.passwordHasher.needsRehash(user.passwordHash)) {

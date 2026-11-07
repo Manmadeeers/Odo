@@ -49,6 +49,9 @@ Registering sends an email containing a verification link. Submit the link's
 { "token": "<email verification token>" }
 ```
 
+Login requires a verified email address. Correct credentials for an
+unverified account receive `403 Forbidden` until confirmation is completed.
+
 Password recovery starts with an email address and always returns the same
 accepted response, whether or not an account exists:
 
