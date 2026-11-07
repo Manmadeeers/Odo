@@ -37,9 +37,13 @@ Authentication endpoints:
 ```text
 POST /auth/register
 POST /auth/login
+POST /auth/refresh-token
+POST /auth/logout
 POST /auth/confirm-email
+POST /auth/resend-verification-email
 POST /auth/forgot-password
 POST /auth/reset-password
+GET /users/me
 ```
 
 Registering sends an email containing a verification link. Submit the link's
@@ -51,6 +55,19 @@ Registering sends an email containing a verification link. Submit the link's
 
 Login requires a verified email address. Correct credentials for an
 unverified account receive `403 Forbidden` until confirmation is completed.
+
+Refresh tokens are single-use and rotated by `POST /auth/refresh-token`.
+Authenticated requests use `Authorization: Bearer <access token>`. Logging out
+revokes the current session, so neither its access token nor refresh token can
+be used again.
+
+`POST /auth/resend-verification-email` accepts an email address and always
+returns the same accepted response. For an unverified account, it invalidates
+the previous verification token and sends a new one.
+
+Expired sessions, email-verification tokens, and password-reset tokens are
+removed periodically. Configure the interval with
+`AUTH_CLEANUP_INTERVAL_MINUTES`.
 
 Password recovery starts with an email address and always returns the same
 accepted response, whether or not an account exists:

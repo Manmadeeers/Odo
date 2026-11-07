@@ -38,6 +38,11 @@ export const environmentSchema = z
       .default(24),
     PASSWORD_RESET_URL: z.url().default('http://localhost:5173/reset-password'),
     PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().positive().default(60),
+    AUTH_CLEANUP_INTERVAL_MINUTES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(60),
   })
   .refine(
     ({ MAIL_USER, MAIL_PASSWORD }) =>

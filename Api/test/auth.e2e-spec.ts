@@ -98,6 +98,7 @@ describe('Authentication endpoints (e2e)', () => {
       'token',
     );
     expect(verificationToken).toBeTypeOf('string');
+    let activeVerificationToken = verificationToken!;
 
     const storedUser = await dataSource
       .getRepository(User)
@@ -132,6 +133,42 @@ describe('Authentication endpoints (e2e)', () => {
     );
     expect(storedVerification.tokenHash).not.toBe(verificationToken);
 
+    const unknownResendResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/resend-verification-email',
+      payload: { email: `missing-${randomUUID()}@example.com` },
+    });
+    expect(unknownResendResponse.statusCode).toBe(202);
+    expect(unknownResendResponse.json()).toEqual({
+      message:
+        'If an unverified account exists for that email, a verification link has been sent',
+    });
+    expect(sendMail).toHaveBeenCalledOnce();
+
+    const resendResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/resend-verification-email',
+      payload: { email: `  ${email.toUpperCase()}  ` },
+    });
+    expect(resendResponse.statusCode).toBe(202);
+    expect(resendResponse.json()).toEqual(unknownResendResponse.json());
+    expect(sendMail).toHaveBeenCalledTimes(2);
+
+    const resentMail = sendMail.mock.calls[1]?.[0] as
+      { to: string; text: string } | undefined;
+    const resentUrl = resentMail?.text.match(/https?:\/\/\S+$/)?.[0];
+    expect(resentUrl).toBeDefined();
+    activeVerificationToken = new URL(resentUrl!).searchParams.get('token')!;
+    expect(activeVerificationToken).toBeTypeOf('string');
+    expect(activeVerificationToken).not.toBe(verificationToken);
+
+    const replacedTokenResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/confirm-email',
+      payload: { token: verificationToken },
+    });
+    expect(replacedTokenResponse.statusCode).toBe(400);
+
     const duplicateResponse = await app.inject({
       method: 'POST',
       url: '/auth/register',
@@ -149,6 +186,13 @@ describe('Authentication endpoints (e2e)', () => {
       message: 'Email address is not verified',
     });
 
+    const unverifiedRefreshResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh-token',
+      payload: { refreshToken: registration.refreshToken },
+    });
+    expect(unverifiedRefreshResponse.statusCode).toBe(403);
+
     const invalidConfirmationResponse = await app.inject({
       method: 'POST',
       url: '/auth/confirm-email',
@@ -159,7 +203,7 @@ describe('Authentication endpoints (e2e)', () => {
     const confirmationResponse = await app.inject({
       method: 'POST',
       url: '/auth/confirm-email',
-      payload: { token: verificationToken },
+      payload: { token: activeVerificationToken },
     });
     expect(confirmationResponse.statusCode).toBe(200);
     expect(confirmationResponse.json()).toEqual({
@@ -169,7 +213,7 @@ describe('Authentication endpoints (e2e)', () => {
     const repeatedConfirmationResponse = await app.inject({
       method: 'POST',
       url: '/auth/confirm-email',
-      payload: { token: verificationToken },
+      payload: { token: activeVerificationToken },
     });
     expect(repeatedConfirmationResponse.statusCode).toBe(200);
 
@@ -177,6 +221,14 @@ describe('Authentication endpoints (e2e)', () => {
       .getRepository(User)
       .findOneByOrFail({ id: registration.user.id });
     expect(confirmedUser.emailVerifiedAt).toBeInstanceOf(Date);
+
+    const verifiedResendResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/resend-verification-email',
+      payload: { email },
+    });
+    expect(verifiedResendResponse.statusCode).toBe(202);
+    expect(sendMail).toHaveBeenCalledTimes(2);
 
     const verifiedLoginResponse = await app.inject({
       method: 'POST',
@@ -191,6 +243,66 @@ describe('Authentication endpoints (e2e)', () => {
     });
     expect(verifiedLogin.accessToken).not.toBe(registration.accessToken);
     expect(verifiedLogin.refreshToken).not.toBe(registration.refreshToken);
+
+    const unauthenticatedMeResponse = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+    });
+    expect(unauthenticatedMeResponse.statusCode).toBe(401);
+
+    const meResponse = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${verifiedLogin.accessToken}` },
+    });
+    expect(meResponse.statusCode).toBe(200);
+    expect(meResponse.json()).toEqual(verifiedLogin.user);
+
+    const refreshResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh-token',
+      payload: { refreshToken: verifiedLogin.refreshToken },
+    });
+    const refreshed = refreshResponse.json<AuthResponse>();
+    expect(refreshResponse.statusCode).toBe(200);
+    expect(refreshed.refreshToken).not.toBe(verifiedLogin.refreshToken);
+    expect(refreshed.accessToken).not.toBe(verifiedLogin.accessToken);
+
+    const reusedRefreshResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh-token',
+      payload: { refreshToken: verifiedLogin.refreshToken },
+    });
+    expect(reusedRefreshResponse.statusCode).toBe(401);
+
+    const refreshedMeResponse = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${refreshed.accessToken}` },
+    });
+    expect(refreshedMeResponse.statusCode).toBe(200);
+
+    const logoutResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/logout',
+      headers: { authorization: `Bearer ${refreshed.accessToken}` },
+    });
+    expect(logoutResponse.statusCode).toBe(200);
+    expect(logoutResponse.json()).toEqual({ message: 'Logged out' });
+
+    const revokedMeResponse = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${refreshed.accessToken}` },
+    });
+    expect(revokedMeResponse.statusCode).toBe(401);
+
+    const revokedRefreshResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh-token',
+      payload: { refreshToken: refreshed.refreshToken },
+    });
+    expect(revokedRefreshResponse.statusCode).toBe(401);
 
     const invalidLoginResponse = await app.inject({
       method: 'POST',
@@ -212,7 +324,7 @@ describe('Authentication endpoints (e2e)', () => {
       message:
         'If an account exists for that email, a password reset link has been sent',
     });
-    expect(sendMail).toHaveBeenCalledOnce();
+    expect(sendMail).toHaveBeenCalledTimes(2);
 
     const forgotPasswordResponse = await app.inject({
       method: 'POST',
@@ -223,9 +335,9 @@ describe('Authentication endpoints (e2e)', () => {
     expect(forgotPasswordResponse.json()).toEqual(
       unknownForgotPasswordResponse.json(),
     );
-    expect(sendMail).toHaveBeenCalledTimes(2);
+    expect(sendMail).toHaveBeenCalledTimes(3);
 
-    const resetMail = sendMail.mock.calls[1]?.[0] as
+    const resetMail = sendMail.mock.calls[2]?.[0] as
       { to: string; text: string } | undefined;
     expect(resetMail?.to).toBe(email);
     const resetUrl = resetMail?.text.match(/https?:\/\/\S+$/)?.[0];

@@ -5,8 +5,10 @@ import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MailModule } from '../mail/mail.module.js';
 import { UsersModule } from '../users/users.module.js';
+import { AccessTokenGuard } from './access-token.guard.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
+import { CurrentUserController } from './current-user.controller.js';
 import { AuthSession } from './entities/auth-session.entity.js';
 import { EmailVerificationToken } from './entities/email-verification-token.entity.js';
 import { PasswordResetToken } from './entities/password-reset-token.entity.js';
@@ -34,7 +36,7 @@ import { PasswordResetToken } from './entities/password-reset-token.entity.js';
     MailModule,
     UsersModule,
   ],
-  controllers: [AuthController],
-  providers: [AuthService, PasswordHasher],
+  controllers: [AuthController, CurrentUserController],
+  providers: [AccessTokenGuard, AuthService, PasswordHasher],
 })
 export class AuthModule {}

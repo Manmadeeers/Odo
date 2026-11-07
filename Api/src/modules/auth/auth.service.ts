@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PasswordHasher } from '@nestjs/authentication';
 import {
   BadRequestException,
@@ -24,6 +24,9 @@ import type {
   AuthenticationResult,
   EmailConfirmationResult,
   ForgotPasswordResult,
+  LogoutResult,
+  RefreshTokenResult,
+  ResendVerificationEmailResult,
   ResetPasswordResult,
 } from './auth.types.js';
 import type { LoginDto } from './dto/login.dto.js';
@@ -88,7 +91,7 @@ export class AuthService {
             passwordHash,
             manager,
           );
-          const verificationToken = await this.createEmailVerificationToken(
+          const verificationToken = await this.replaceEmailVerificationToken(
             user.id,
             manager,
           );
@@ -177,6 +180,94 @@ export class AuthService {
     }
 
     return this.issueTokens(user);
+  }
+
+  async refreshToken(refreshToken: string): Promise<RefreshTokenResult> {
+    const refreshTokenHash = this.hashToken(refreshToken);
+
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(AuthSession);
+      const session = await repository
+        .createQueryBuilder('session')
+        .innerJoinAndSelect('session.user', 'user')
+        .setLock('pessimistic_write')
+        .where('session.refreshTokenHash = :refreshTokenHash', {
+          refreshTokenHash,
+        })
+        .getOne();
+
+      if (
+        !session ||
+        session.revokedAt ||
+        session.expiresAt.getTime() <= Date.now()
+      ) {
+        throw new UnauthorizedException('Invalid or expired refresh token');
+      }
+
+      if (!session.user.emailVerifiedAt) {
+        throw new ForbiddenException('Email address is not verified');
+      }
+
+      const rotatedRefreshToken = randomBytes(32).toString('base64url');
+      await repository.update(
+        { id: session.id },
+        {
+          refreshTokenHash: this.hashToken(rotatedRefreshToken),
+          expiresAt: new Date(Date.now() + this.refreshTokenTtlMilliseconds),
+        },
+      );
+
+      return this.createAuthenticationResult(
+        session.user,
+        session.id,
+        rotatedRefreshToken,
+      );
+    });
+  }
+
+  async logout(sessionId: string, userId: string): Promise<LogoutResult> {
+    await this.sessionsRepository.update(
+      { id: sessionId, userId },
+      { revokedAt: new Date() },
+    );
+
+    return { message: 'Logged out' };
+  }
+
+  async resendVerificationEmail(
+    email: string,
+  ): Promise<ResendVerificationEmailResult> {
+    const response: ResendVerificationEmailResult = {
+      message:
+        'If an unverified account exists for that email, a verification link has been sent',
+    };
+    const user = await this.usersService.findByEmail(email);
+
+    if (!user || user.emailVerifiedAt) {
+      return response;
+    }
+
+    const token = await this.dataSource.transaction(async (manager) => {
+      await manager
+        .getRepository(User)
+        .createQueryBuilder('user')
+        .setLock('pessimistic_write')
+        .where('user.id = :userId', { userId: user.id })
+        .getOneOrFail();
+
+      return this.replaceEmailVerificationToken(user.id, manager);
+    });
+
+    try {
+      await this.sendVerificationEmail(user.email, token);
+    } catch (error: unknown) {
+      this.logger.error(
+        'Failed to resend an email verification message',
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+
+    return response;
   }
 
   async forgotPassword(email: string): Promise<ForgotPasswordResult> {
@@ -277,9 +368,18 @@ export class AuthService {
         revokedAt: null,
       }),
     );
+    return this.createAuthenticationResult(user, session.id, refreshToken);
+  }
+
+  private async createAuthenticationResult(
+    user: User,
+    sessionId: string,
+    refreshToken: string,
+  ): Promise<AuthenticationResult> {
     const accessToken = await this.jwtService.signAsync({
       sub: user.id,
-      sid: session.id,
+      sid: sessionId,
+      jti: randomUUID(),
     });
 
     return {
@@ -295,12 +395,14 @@ export class AuthService {
     };
   }
 
-  private async createEmailVerificationToken(
+  private async replaceEmailVerificationToken(
     userId: string,
     manager: EntityManager,
   ): Promise<string> {
     const token = randomBytes(32).toString('base64url');
     const repository = manager.getRepository(EmailVerificationToken);
+
+    await repository.delete({ userId });
 
     await repository.save(
       repository.create({

@@ -23,3 +23,17 @@ export interface ForgotPasswordResult {
 export interface ResetPasswordResult {
   message: 'Password reset successfully';
 }
+
+export type RefreshTokenResult = AuthenticationResult;
+
+export interface LogoutResult {
+  message: 'Logged out';
+}
+
+export interface ResendVerificationEmailResult {
+  message: 'If an unverified account exists for that email, a verification link has been sent';
+}
+
+export interface AuthenticatedRequestUser extends AuthenticatedUser {
+  sessionId: string;
+}
