@@ -11,3 +11,7 @@ export interface AuthenticationResult {
   tokenType: 'Bearer';
   expiresIn: number;
 }
+
+export interface EmailConfirmationResult {
+  message: 'Email confirmed';
+}

@@ -3,15 +3,17 @@ import { PasswordHasher } from '@nestjs/authentication';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { MailModule } from '../mail/mail.module.js';
 import { UsersModule } from '../users/users.module.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { AuthSession } from './entities/auth-session.entity.js';
+import { EmailVerificationToken } from './entities/email-verification-token.entity.js';
 
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([AuthSession]),
+    TypeOrmModule.forFeature([AuthSession, EmailVerificationToken]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -24,6 +26,7 @@ import { AuthSession } from './entities/auth-session.entity.js';
         },
       }),
     }),
+    MailModule,
     UsersModule,
   ],
   controllers: [AuthController],

@@ -8,6 +8,8 @@ import {
 import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module.js';
 import { AuthSession } from '../src/modules/auth/entities/auth-session.entity.js';
+import { EmailVerificationToken } from '../src/modules/auth/entities/email-verification-token.entity.js';
+import { MailService } from '../src/modules/mail/mail.service.js';
 import { User } from '../src/modules/users/entities/user.entity.js';
 
 interface AuthResponse {
@@ -27,6 +29,7 @@ describe('Authentication endpoints (e2e)', () => {
   let dataSource: DataSource;
   const email = `auth-${randomUUID()}@example.com`;
   const password = 'correct horse battery staple';
+  const sendMail = vi.fn().mockResolvedValue(undefined);
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -34,6 +37,8 @@ describe('Authentication endpoints (e2e)', () => {
     })
       .overrideProvider(PasswordHasher)
       .useValue(new PasswordHasher({ logN: 10 }))
+      .overrideProvider(MailService)
+      .useValue({ send: sendMail })
       .compile();
 
     app = moduleFixture.createNestApplication<NestFastifyApplication>(
@@ -81,6 +86,17 @@ describe('Authentication endpoints (e2e)', () => {
     expect(registration.tokenType).toBe('Bearer');
     expect(registration.expiresIn).toBe(900);
 
+    expect(sendMail).toHaveBeenCalledOnce();
+    const sentMail = sendMail.mock.calls[0]?.[0] as
+      { to: string; text: string } | undefined;
+    expect(sentMail?.to).toBe(email);
+    const verificationUrl = sentMail?.text.match(/https?:\/\/\S+$/)?.[0];
+    expect(verificationUrl).toBeDefined();
+    const verificationToken = new URL(verificationUrl!).searchParams.get(
+      'token',
+    );
+    expect(verificationToken).toBeTypeOf('string');
+
     const storedUser = await dataSource
       .getRepository(User)
       .createQueryBuilder('user')
@@ -101,6 +117,19 @@ describe('Authentication endpoints (e2e)', () => {
     );
     expect(storedSession.refreshTokenHash).not.toBe(registration.refreshToken);
 
+    const storedVerification = await dataSource
+      .getRepository(EmailVerificationToken)
+      .createQueryBuilder('verification')
+      .addSelect('verification.tokenHash')
+      .where('verification.userId = :userId', {
+        userId: registration.user.id,
+      })
+      .getOneOrFail();
+    expect(storedVerification.tokenHash).toBe(
+      createHash('sha256').update(verificationToken!).digest('hex'),
+    );
+    expect(storedVerification.tokenHash).not.toBe(verificationToken);
+
     const duplicateResponse = await app.inject({
       method: 'POST',
       url: '/auth/register',
@@ -118,6 +147,35 @@ describe('Authentication endpoints (e2e)', () => {
     expect(login.user.id).toBe(registration.user.id);
     expect(login.accessToken).not.toBe(registration.accessToken);
     expect(login.refreshToken).not.toBe(registration.refreshToken);
+
+    const invalidConfirmationResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/confirm-email',
+      payload: { token: randomUUID() },
+    });
+    expect(invalidConfirmationResponse.statusCode).toBe(400);
+
+    const confirmationResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/confirm-email',
+      payload: { token: verificationToken },
+    });
+    expect(confirmationResponse.statusCode).toBe(200);
+    expect(confirmationResponse.json()).toEqual({
+      message: 'Email confirmed',
+    });
+
+    const repeatedConfirmationResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/confirm-email',
+      payload: { token: verificationToken },
+    });
+    expect(repeatedConfirmationResponse.statusCode).toBe(200);
+
+    const confirmedUser = await dataSource
+      .getRepository(User)
+      .findOneByOrFail({ id: registration.user.id });
+    expect(confirmedUser.emailVerifiedAt).toBeInstanceOf(Date);
 
     const invalidLoginResponse = await app.inject({
       method: 'POST',

@@ -7,6 +7,7 @@ import { createDatabaseOptions } from './database/database.config.js';
 import { environmentSchema } from './config/environment.schema.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { HealthModule } from './modules/health/health.module.js';
+import { MailModule } from './modules/mail/mail.module.js';
 import { UsersModule } from './modules/users/users.module.js';
 
 @Module({
@@ -34,6 +35,7 @@ import { UsersModule } from './modules/users/users.module.js';
     ]),
     AuthModule,
     HealthModule,
+    MailModule,
     UsersModule,
   ],
   providers: [
