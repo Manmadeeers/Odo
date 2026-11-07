@@ -1,5 +1,8 @@
 # Dependencies
 node_modules/
+.agents/
+.aws/
+.codex/
 
 # Build output and caches
 dist/
