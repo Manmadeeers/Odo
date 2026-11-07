@@ -24,7 +24,6 @@ pnpm-debug.log*
 # Runtime files
 *.pid
 *.pid.lock
-
 # IDE and editor files
 .vscode/
 .idea/
