@@ -6,6 +6,7 @@ import {
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
+  type Relation,
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity.js';
 
@@ -29,7 +30,7 @@ export class AuthSession {
     name: 'user_id',
     foreignKeyConstraintName: 'fk_auth_sessions_user',
   })
-  user!: User;
+  user!: Relation<User>;
 
   @Column({
     name: 'refresh_token_hash',

@@ -5,6 +5,7 @@ import {
   Index,
   OneToMany,
   PrimaryGeneratedColumn,
+  type Relation,
   UpdateDateColumn,
 } from 'typeorm';
 import { AuthSession } from '../../auth/entities/auth-session.entity.js';
@@ -36,5 +37,5 @@ export class User {
   updatedAt!: Date;
 
   @OneToMany(() => AuthSession, (session) => session.user)
-  sessions!: AuthSession[];
+  sessions!: Relation<AuthSession[]>;
 }

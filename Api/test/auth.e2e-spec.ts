@@ -1,0 +1,139 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { PasswordHasher } from '@nestjs/authentication';
+import { Test, type TestingModule } from '@nestjs/testing';
+import {
+  FastifyAdapter,
+  type NestFastifyApplication,
+} from '@nestjs/platform-fastify';
+import { DataSource } from 'typeorm';
+import { AppModule } from '../src/app.module.js';
+import { AuthSession } from '../src/modules/auth/entities/auth-session.entity.js';
+import { User } from '../src/modules/users/entities/user.entity.js';
+
+interface AuthResponse {
+  user: {
+    id: string;
+    email: string;
+    emailVerified: boolean;
+  };
+  accessToken: string;
+  refreshToken: string;
+  tokenType: string;
+  expiresIn: number;
+}
+
+describe('Authentication endpoints (e2e)', () => {
+  let app: NestFastifyApplication | undefined;
+  let dataSource: DataSource;
+  const email = `auth-${randomUUID()}@example.com`;
+  const password = 'correct horse battery staple';
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    })
+      .overrideProvider(PasswordHasher)
+      .useValue(new PasswordHasher({ logN: 10 }))
+      .compile();
+
+    app = moduleFixture.createNestApplication<NestFastifyApplication>(
+      new FastifyAdapter(),
+    );
+    await app.init();
+    await app.getHttpAdapter().getInstance().ready();
+    dataSource = app.get(DataSource);
+  });
+
+  it('rejects an invalid registration payload', async () => {
+    if (!app) {
+      throw new Error('Test application was not initialized');
+    }
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/auth/register',
+      payload: { email: 'not-an-email', password: 'short' },
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('registers and logs in without persisting credentials in plaintext', async () => {
+    if (!app) {
+      throw new Error('Test application was not initialized');
+    }
+
+    const registrationResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/register',
+      payload: { email: `  ${email.toUpperCase()}  `, password },
+    });
+    const registration = registrationResponse.json<AuthResponse>();
+
+    expect(registrationResponse.statusCode).toBe(201);
+    expect(registration.user).toMatchObject({
+      email,
+      emailVerified: false,
+    });
+    expect(registration.user).not.toHaveProperty('passwordHash');
+    expect(registration.accessToken).toBeTypeOf('string');
+    expect(registration.refreshToken).toBeTypeOf('string');
+    expect(registration.tokenType).toBe('Bearer');
+    expect(registration.expiresIn).toBe(900);
+
+    const storedUser = await dataSource
+      .getRepository(User)
+      .createQueryBuilder('user')
+      .addSelect('user.passwordHash')
+      .where('user.id = :id', { id: registration.user.id })
+      .getOneOrFail();
+    expect(storedUser.passwordHash).toMatch(/^\$scrypt\$/);
+    expect(storedUser.passwordHash).not.toContain(password);
+
+    const storedSession = await dataSource
+      .getRepository(AuthSession)
+      .createQueryBuilder('session')
+      .addSelect('session.refreshTokenHash')
+      .where('session.userId = :userId', { userId: registration.user.id })
+      .getOneOrFail();
+    expect(storedSession.refreshTokenHash).toBe(
+      createHash('sha256').update(registration.refreshToken).digest('hex'),
+    );
+    expect(storedSession.refreshTokenHash).not.toBe(registration.refreshToken);
+
+    const duplicateResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/register',
+      payload: { email, password },
+    });
+    expect(duplicateResponse.statusCode).toBe(409);
+
+    const loginResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email, password },
+    });
+    const login = loginResponse.json<AuthResponse>();
+    expect(loginResponse.statusCode).toBe(200);
+    expect(login.user.id).toBe(registration.user.id);
+    expect(login.accessToken).not.toBe(registration.accessToken);
+    expect(login.refreshToken).not.toBe(registration.refreshToken);
+
+    const invalidLoginResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email, password: 'incorrect password' },
+    });
+    expect(invalidLoginResponse.statusCode).toBe(401);
+    expect(invalidLoginResponse.json()).toMatchObject({
+      message: 'Invalid email or password',
+    });
+  });
+
+  afterAll(async () => {
+    if (dataSource?.isInitialized) {
+      await dataSource.getRepository(User).delete({ email });
+    }
+    await app?.close();
+  });
+});

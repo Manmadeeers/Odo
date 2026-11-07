@@ -23,6 +23,19 @@ npm run start:dev
 The API is available at `http://localhost:3000`; health status is exposed at
 `GET /health`.
 
+Generate a real JWT secret before using the API outside local development:
+
+```bash
+openssl rand -base64 32
+```
+
+Authentication endpoints:
+
+```text
+POST /auth/register
+POST /auth/login
+```
+
 ## Migrations
 
 After changing an entity, generate and review a migration:
