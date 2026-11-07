@@ -13,6 +13,8 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   DataSource,
+  IsNull,
+  Not,
   QueryFailedError,
   type EntityManager,
   type Repository,
@@ -22,9 +24,11 @@ import { UsersService } from '../users/users.service.js';
 import { MailService } from '../mail/mail.service.js';
 import type {
   AuthenticationResult,
+  ChangePasswordResult,
   EmailConfirmationResult,
   ForgotPasswordResult,
   LogoutResult,
+  RegistrationResult,
   RefreshTokenResult,
   ResendVerificationEmailResult,
   ResetPasswordResult,
@@ -80,12 +84,12 @@ export class AuthService {
       configService.getOrThrow<string>('PASSWORD_RESET_URL');
   }
 
-  async register(input: RegisterDto): Promise<AuthenticationResult> {
+  async register(input: RegisterDto): Promise<RegistrationResult> {
     const passwordHash = await this.passwordHasher.hash(input.password);
 
     try {
-      const { authentication, verificationToken } =
-        await this.dataSource.transaction(async (manager) => {
+      const { user, verificationToken } = await this.dataSource.transaction(
+        async (manager) => {
           const user = await this.usersService.create(
             input.email,
             passwordHash,
@@ -95,17 +99,21 @@ export class AuthService {
             user.id,
             manager,
           );
-          const authentication = await this.issueTokens(user, manager);
-
-          return { authentication, verificationToken };
-        });
-
-      await this.sendVerificationEmail(
-        authentication.user.email,
-        verificationToken,
+          return { user, verificationToken };
+        },
       );
 
-      return authentication;
+      await this.sendVerificationEmail(user.email, verificationToken);
+
+      return {
+        user: {
+          id: user.id,
+          email: user.email,
+          emailVerified: false,
+        },
+        message:
+          'Registration successful. Check your email to verify your account',
+      };
     } catch (error: unknown) {
       if (this.isUniqueViolation(error)) {
         throw new ConflictException(
@@ -232,6 +240,47 @@ export class AuthService {
     );
 
     return { message: 'Logged out' };
+  }
+
+  async changePassword(
+    userId: string,
+    currentSessionId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<ChangePasswordResult> {
+    const newPasswordHash = await this.passwordHasher.hash(newPassword);
+
+    await this.dataSource.transaction(async (manager) => {
+      const user = await manager
+        .getRepository(User)
+        .createQueryBuilder('user')
+        .addSelect('user.passwordHash')
+        .setLock('pessimistic_write')
+        .where('user.id = :userId', { userId })
+        .getOneOrFail();
+      const passwordMatches = await this.passwordHasher.verify(
+        currentPassword,
+        user.passwordHash,
+      );
+
+      if (!passwordMatches) {
+        throw new UnauthorizedException('Current password is incorrect');
+      }
+
+      await manager
+        .getRepository(User)
+        .update({ id: userId }, { passwordHash: newPasswordHash });
+      await manager.getRepository(AuthSession).update(
+        {
+          userId,
+          id: Not(currentSessionId),
+          revokedAt: IsNull(),
+        },
+        { revokedAt: new Date() },
+      );
+    });
+
+    return { message: 'Password changed successfully' };
   }
 
   async resendVerificationEmail(

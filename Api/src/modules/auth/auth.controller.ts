@@ -12,14 +12,20 @@ import { AuthService } from './auth.service.js';
 import type {
   AuthenticationResult,
   AuthenticatedRequestUser,
+  ChangePasswordResult,
   EmailConfirmationResult,
   ForgotPasswordResult,
   LogoutResult,
+  RegistrationResult,
   RefreshTokenResult,
   ResendVerificationEmailResult,
   ResetPasswordResult,
 } from './auth.types.js';
 import { CurrentUser } from './current-user.decorator.js';
+import {
+  changePasswordSchema,
+  type ChangePasswordDto,
+} from './dto/change-password.dto.js';
 import {
   confirmEmailSchema,
   type ConfirmEmailDto,
@@ -51,7 +57,7 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   register(
     @Body({ schema: registerSchema }) input: RegisterDto,
-  ): Promise<AuthenticationResult> {
+  ): Promise<RegistrationResult> {
     return this.authService.register(input);
   }
 
@@ -78,6 +84,22 @@ export class AuthController {
   @UseGuards(AccessTokenGuard)
   logout(@CurrentUser() user: AuthenticatedRequestUser): Promise<LogoutResult> {
     return this.authService.logout(user.sessionId, user.id);
+  }
+
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AccessTokenGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  changePassword(
+    @CurrentUser() user: AuthenticatedRequestUser,
+    @Body({ schema: changePasswordSchema }) input: ChangePasswordDto,
+  ): Promise<ChangePasswordResult> {
+    return this.authService.changePassword(
+      user.id,
+      user.sessionId,
+      input.currentPassword,
+      input.newPassword,
+    );
   }
 
   @Post('confirm-email')

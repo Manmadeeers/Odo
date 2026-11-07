@@ -12,6 +12,11 @@ export interface AuthenticationResult {
   expiresIn: number;
 }
 
+export interface RegistrationResult {
+  user: AuthenticatedUser;
+  message: 'Registration successful. Check your email to verify your account';
+}
+
 export interface EmailConfirmationResult {
   message: 'Email confirmed';
 }
@@ -28,6 +33,10 @@ export type RefreshTokenResult = AuthenticationResult;
 
 export interface LogoutResult {
   message: 'Logged out';
+}
+
+export interface ChangePasswordResult {
+  message: 'Password changed successfully';
 }
 
 export interface ResendVerificationEmailResult {

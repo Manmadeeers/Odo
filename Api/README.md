@@ -39,6 +39,7 @@ POST /auth/register
 POST /auth/login
 POST /auth/refresh-token
 POST /auth/logout
+POST /auth/change-password
 POST /auth/confirm-email
 POST /auth/resend-verification-email
 POST /auth/forgot-password
@@ -46,8 +47,9 @@ POST /auth/reset-password
 GET /users/me
 ```
 
-Registering sends an email containing a verification link. Submit the link's
-`token` query parameter to the confirmation endpoint:
+Registering creates an unverified account but does not issue access or refresh
+tokens. It sends an email containing a verification link. Submit the link's
+`token` query parameter to the confirmation endpoint, then log in:
 
 ```json
 { "token": "<email verification token>" }
@@ -60,6 +62,10 @@ Refresh tokens are single-use and rotated by `POST /auth/refresh-token`.
 Authenticated requests use `Authorization: Bearer <access token>`. Logging out
 revokes the current session, so neither its access token nor refresh token can
 be used again.
+
+`POST /auth/change-password` requires an access token plus `currentPassword`
+and `newPassword`. A successful change keeps the current session active and
+revokes the user's other sessions.
 
 `POST /auth/resend-verification-email` accepts an email address and always
 returns the same accepted response. For an unverified account, it invalidates

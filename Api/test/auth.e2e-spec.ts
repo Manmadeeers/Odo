@@ -25,12 +25,18 @@ interface AuthResponse {
   expiresIn: number;
 }
 
+interface RegistrationResponse {
+  user: AuthResponse['user'];
+  message: string;
+}
+
 describe('Authentication endpoints (e2e)', () => {
   let app: NestFastifyApplication | undefined;
   let dataSource: DataSource;
   const email = `auth-${randomUUID()}@example.com`;
   const password = 'correct horse battery staple';
-  const newPassword = 'new correct horse battery staple';
+  const changedPassword = 'changed correct horse battery staple';
+  const resetPassword = 'reset correct horse battery staple';
   const sendMail = vi.fn().mockResolvedValue(undefined);
 
   beforeAll(async () => {
@@ -75,7 +81,7 @@ describe('Authentication endpoints (e2e)', () => {
       url: '/auth/register',
       payload: { email: `  ${email.toUpperCase()}  `, password },
     });
-    const registration = registrationResponse.json<AuthResponse>();
+    const registration = registrationResponse.json<RegistrationResponse>();
 
     expect(registrationResponse.statusCode).toBe(201);
     expect(registration.user).toMatchObject({
@@ -83,10 +89,11 @@ describe('Authentication endpoints (e2e)', () => {
       emailVerified: false,
     });
     expect(registration.user).not.toHaveProperty('passwordHash');
-    expect(registration.accessToken).toBeTypeOf('string');
-    expect(registration.refreshToken).toBeTypeOf('string');
-    expect(registration.tokenType).toBe('Bearer');
-    expect(registration.expiresIn).toBe(900);
+    expect(registration).not.toHaveProperty('accessToken');
+    expect(registration).not.toHaveProperty('refreshToken');
+    expect(registration.message).toBe(
+      'Registration successful. Check your email to verify your account',
+    );
 
     expect(sendMail).toHaveBeenCalledOnce();
     const sentMail = sendMail.mock.calls[0]?.[0] as
@@ -109,16 +116,10 @@ describe('Authentication endpoints (e2e)', () => {
     expect(storedUser.passwordHash).toMatch(/^\$scrypt\$/);
     expect(storedUser.passwordHash).not.toContain(password);
 
-    const storedSession = await dataSource
+    const storedSessions = await dataSource
       .getRepository(AuthSession)
-      .createQueryBuilder('session')
-      .addSelect('session.refreshTokenHash')
-      .where('session.userId = :userId', { userId: registration.user.id })
-      .getOneOrFail();
-    expect(storedSession.refreshTokenHash).toBe(
-      createHash('sha256').update(registration.refreshToken).digest('hex'),
-    );
-    expect(storedSession.refreshTokenHash).not.toBe(registration.refreshToken);
+      .countBy({ userId: registration.user.id });
+    expect(storedSessions).toBe(0);
 
     const storedVerification = await dataSource
       .getRepository(EmailVerificationToken)
@@ -186,13 +187,6 @@ describe('Authentication endpoints (e2e)', () => {
       message: 'Email address is not verified',
     });
 
-    const unverifiedRefreshResponse = await app.inject({
-      method: 'POST',
-      url: '/auth/refresh-token',
-      payload: { refreshToken: registration.refreshToken },
-    });
-    expect(unverifiedRefreshResponse.statusCode).toBe(403);
-
     const invalidConfirmationResponse = await app.inject({
       method: 'POST',
       url: '/auth/confirm-email',
@@ -241,8 +235,8 @@ describe('Authentication endpoints (e2e)', () => {
       id: registration.user.id,
       emailVerified: true,
     });
-    expect(verifiedLogin.accessToken).not.toBe(registration.accessToken);
-    expect(verifiedLogin.refreshToken).not.toBe(registration.refreshToken);
+    expect(verifiedLogin.accessToken).toBeTypeOf('string');
+    expect(verifiedLogin.refreshToken).toBeTypeOf('string');
 
     const unauthenticatedMeResponse = await app.inject({
       method: 'GET',
@@ -314,6 +308,79 @@ describe('Authentication endpoints (e2e)', () => {
       message: 'Invalid email or password',
     });
 
+    const changePasswordLoginResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email, password },
+    });
+    const changePasswordLogin =
+      changePasswordLoginResponse.json<AuthResponse>();
+    expect(changePasswordLoginResponse.statusCode).toBe(200);
+
+    const otherDeviceLoginResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email, password },
+    });
+    const otherDeviceLogin = otherDeviceLoginResponse.json<AuthResponse>();
+    expect(otherDeviceLoginResponse.statusCode).toBe(200);
+
+    const incorrectCurrentPasswordResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/change-password',
+      headers: {
+        authorization: `Bearer ${changePasswordLogin.accessToken}`,
+      },
+      payload: {
+        currentPassword: 'incorrect current password',
+        newPassword: changedPassword,
+      },
+    });
+    expect(incorrectCurrentPasswordResponse.statusCode).toBe(401);
+
+    const changePasswordResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/change-password',
+      headers: {
+        authorization: `Bearer ${changePasswordLogin.accessToken}`,
+      },
+      payload: { currentPassword: password, newPassword: changedPassword },
+    });
+    expect(changePasswordResponse.statusCode).toBe(200);
+    expect(changePasswordResponse.json()).toEqual({
+      message: 'Password changed successfully',
+    });
+
+    const currentSessionResponse = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: {
+        authorization: `Bearer ${changePasswordLogin.accessToken}`,
+      },
+    });
+    expect(currentSessionResponse.statusCode).toBe(200);
+
+    const otherSessionResponse = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${otherDeviceLogin.accessToken}` },
+    });
+    expect(otherSessionResponse.statusCode).toBe(401);
+
+    const previousPasswordLoginResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email, password },
+    });
+    expect(previousPasswordLoginResponse.statusCode).toBe(401);
+
+    const changedPasswordLoginResponse = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email, password: changedPassword },
+    });
+    expect(changedPasswordLoginResponse.statusCode).toBe(200);
+
     const unknownForgotPasswordResponse = await app.inject({
       method: 'POST',
       url: '/auth/forgot-password',
@@ -361,14 +428,14 @@ describe('Authentication endpoints (e2e)', () => {
     const invalidResetResponse = await app.inject({
       method: 'POST',
       url: '/auth/reset-password',
-      payload: { token: randomUUID(), newPassword },
+      payload: { token: randomUUID(), newPassword: resetPassword },
     });
     expect(invalidResetResponse.statusCode).toBe(400);
 
     const resetResponse = await app.inject({
       method: 'POST',
       url: '/auth/reset-password',
-      payload: { token: resetToken, newPassword },
+      payload: { token: resetToken, newPassword: resetPassword },
     });
     expect(resetResponse.statusCode).toBe(200);
     expect(resetResponse.json()).toEqual({
@@ -378,7 +445,7 @@ describe('Authentication endpoints (e2e)', () => {
     const reusedResetResponse = await app.inject({
       method: 'POST',
       url: '/auth/reset-password',
-      payload: { token: resetToken, newPassword },
+      payload: { token: resetToken, newPassword: resetPassword },
     });
     expect(reusedResetResponse.statusCode).toBe(400);
 
@@ -393,14 +460,14 @@ describe('Authentication endpoints (e2e)', () => {
     const oldPasswordLoginResponse = await app.inject({
       method: 'POST',
       url: '/auth/login',
-      payload: { email, password },
+      payload: { email, password: changedPassword },
     });
     expect(oldPasswordLoginResponse.statusCode).toBe(401);
 
     const newPasswordLoginResponse = await app.inject({
       method: 'POST',
       url: '/auth/login',
-      payload: { email, password: newPassword },
+      payload: { email, password: resetPassword },
     });
     expect(newPasswordLoginResponse.statusCode).toBe(200);
     expect(newPasswordLoginResponse.json<AuthResponse>().user).toMatchObject({
