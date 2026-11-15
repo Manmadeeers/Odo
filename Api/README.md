@@ -1,14 +1,27 @@
 # Odo API
 
-NestJS REST API for Odo, using Fastify, TypeORM, PostgreSQL, and PostGIS.
+NestJS REST API for Odo, using Fastify, TypeORM, PostgreSQL, PostGIS, and a
+self-hosted Valhalla bicycle-routing service.
 
 ## Run locally
 
-Start PostgreSQL and Mailpit from the repository root:
+Start PostgreSQL, Mailpit, and Valhalla from the repository root:
 
 ```bash
 docker compose up -d
 ```
+
+On its first start, Valhalla downloads the Belarus OpenStreetMap extract and
+builds routing tiles in the persistent `valhalla_data` Docker volume. This can
+take several minutes. Follow the build and check readiness with:
+
+```bash
+docker compose logs -f valhalla
+curl http://127.0.0.1:8002/status
+```
+
+Do not send route requests until the status endpoint responds successfully.
+Subsequent starts reuse the generated tiles.
 
 Then start the API:
 
@@ -45,6 +58,7 @@ POST /auth/resend-verification-email
 POST /auth/forgot-password
 POST /auth/reset-password
 GET /users/me
+POST /routes/preview
 ```
 
 Registering creates an unverified account but does not issue access or refresh
@@ -106,6 +120,94 @@ MAIL_FROM=Odo <noreply@odo.local>
 `MAIL_USER` and `MAIL_PASSWORD` are optional locally. To use Brevo later, set
 the same variables to its SMTP host, port, username, and key; application code
 does not need to change.
+
+## Bicycle routing
+
+The API exposes Valhalla through `POST /routes/preview`. Clients do not call
+Valhalla directly. This keeps the upstream service private and gives the mobile
+app a stable Odo response format.
+
+The endpoint requires an access token and is limited to 20 requests per minute
+per client. It accepts between 2 and 25 ordered locations. Latitude must be
+between `-90` and `90`; longitude must be between `-180` and `180`.
+
+```bash
+curl http://localhost:3000/routes/preview \
+  -H 'Authorization: Bearer <access token>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "locations": [
+      { "lat": 53.9006, "lon": 27.5590 },
+      { "lat": 53.9111, "lon": 27.5733 }
+    ]
+  }'
+```
+
+Odo always requests Valhalla's `bicycle` costing model. Successful responses
+use meters and seconds and contain one leg for each pair of route break points:
+
+```json
+{
+  "distanceMeters": 5420,
+  "durationSeconds": 1180,
+  "polylinePrecision": 6,
+  "legs": [
+    {
+      "distanceMeters": 5420,
+      "durationSeconds": 1180,
+      "encodedPolyline": "<Valhalla polyline6>",
+      "maneuvers": [
+        {
+          "instruction": "Turn right onto the cycleway.",
+          "distanceMeters": 120,
+          "durationSeconds": 30,
+          "beginShapeIndex": 0,
+          "endShapeIndex": 8,
+          "type": 10
+        }
+      ]
+    }
+  ]
+}
+```
+
+Route shapes use six decimal places of polyline precision. Decode them as
+polyline6; a standard precision-5 decoder produces incorrect coordinates.
+
+Routing-related responses include:
+
+- `400 Bad Request` when the locations are invalid or Valhalla cannot calculate
+  a route for them.
+- `401 Unauthorized` when the access token is missing, invalid, or belongs to
+  an inactive session.
+- `429 Too Many Requests` when the route-specific rate limit is exceeded.
+- `502 Bad Gateway` when Valhalla is unavailable or returns an invalid response.
+- `504 Gateway Timeout` when Valhalla exceeds the configured timeout.
+
+### Routing configuration
+
+The API reads these values from `Api/.env`:
+
+```text
+VALHALLA_URL=http://127.0.0.1:8002
+VALHALLA_TIMEOUT_MS=10000
+```
+
+`VALHALLA_URL` should remain private to the API. The default is correct when
+Nest runs on the host. If the API is moved into the Compose network, use
+`http://valhalla:8002` instead.
+
+The Compose service can be customized with:
+
+```text
+VALHALLA_PORT=8002
+VALHALLA_TILE_URL=https://download.geofabrik.de/europe/belarus-latest.osm.pbf
+VALHALLA_BUILD_ELEVATION=False
+VALHALLA_SERVER_THREADS=2
+```
+
+Changing the tile source or enabling elevation may cause Valhalla to download
+additional data and rebuild its routing graph.
 
 ## Migrations
 

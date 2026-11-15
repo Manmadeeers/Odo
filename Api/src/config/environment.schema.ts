@@ -6,6 +6,7 @@ export const environmentSchema = z
       .enum(['development', 'test', 'production'])
       .default('development'),
     PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
+    HOST: z.string().min(1).default('127.0.0.1'),
     DATABASE_URL: z
       .string()
       .min(1)
@@ -43,6 +44,8 @@ export const environmentSchema = z
       .int()
       .positive()
       .default(60),
+    VALHALLA_URL: z.url().default('http://127.0.0.1:8002'),
+    VALHALLA_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   })
   .refine(
     ({ MAIL_USER, MAIL_PASSWORD }) =>

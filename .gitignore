@@ -40,3 +40,24 @@ pnpm-debug.log*
 # Operating-system files
 .DS_Store
 Thumbs.db
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+Mobile/build/
+Mobile/android/.gradle/
+Mobile/android/local.properties
+Mobile/android/key.properties
+Mobile/android/app/debug/
+Mobile/android/app/profile/
+Mobile/android/app/release/
+Mobile/ios/Flutter/ephemeral/
+Mobile/ios/Pods/
+Mobile/ios/.symlinks/
+Mobile/ios/Flutter/.last_build_id
+*.symbols
+*.map.json
