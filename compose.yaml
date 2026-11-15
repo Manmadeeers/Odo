@@ -26,5 +26,25 @@ services:
       - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
       - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
 
+  valhalla:
+    container_name: odo-valhalla
+    image: ghcr.io/valhalla/valhalla-scripted:3.9.2
+    environment:
+      tile_urls: ${VALHALLA_TILE_URL:-https://download.geofabrik.de/europe/belarus-latest.osm.pbf}
+      build_elevation: ${VALHALLA_BUILD_ELEVATION:-False}
+      server_threads: ${VALHALLA_SERVER_THREADS:-2}
+    ports:
+      - "127.0.0.1:${VALHALLA_PORT:-8002}:8002"
+    volumes:
+      - valhalla_data:/custom_files
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8002/status"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 10m
+
 volumes:
   postgres_data:
+  valhalla_data:

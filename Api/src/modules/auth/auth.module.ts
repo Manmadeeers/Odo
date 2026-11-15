@@ -38,5 +38,6 @@ import { PasswordResetToken } from './entities/password-reset-token.entity.js';
   ],
   controllers: [AuthController, CurrentUserController],
   providers: [AccessTokenGuard, AuthService, PasswordHasher],
+  exports: [AccessTokenGuard],
 })
 export class AuthModule {}
