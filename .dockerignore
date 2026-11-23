@@ -1,0 +1,78 @@
+# Version-control and Codex metadata
+.git/
+.gitignore
+.gitattributes
+.agents/
+.codex/
+.aws/
+
+# Environment files and local secrets
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.keystore
+
+# Node.js dependencies, build output, and caches
+**/node_modules/
+**/dist/
+**/dist-ssr/
+**/coverage/
+**/.cache/
+**/.vite/
+**/*.tsbuildinfo
+
+# Logs and runtime files
+**/logs/
+**/*.log
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+**/pnpm-debug.log*
+**/*.pid
+**/*.pid.lock
+
+# IDE and operating-system files
+**/.idea/
+**/.vscode/
+**/*.iml
+**/.DS_Store
+**/Thumbs.db
+**/*~
+**/*.swp
+**/*.swo
+
+# Flutter and Dart generated files
+Mobile/.dart_tool/
+Mobile/.flutter-plugins
+Mobile/.flutter-plugins-dependencies
+Mobile/.packages
+Mobile/.pub-cache/
+Mobile/.pub/
+Mobile/build/
+Mobile/*.symbols
+Mobile/*.map.json
+
+# Android generated files and machine-local configuration
+Mobile/android/.gradle/
+Mobile/android/local.properties
+Mobile/android/key.properties
+Mobile/android/app/debug/
+Mobile/android/app/profile/
+Mobile/android/app/release/
+
+# iOS generated files
+Mobile/ios/Flutter/ephemeral/
+Mobile/ios/Flutter/.last_build_id
+Mobile/ios/Pods/
+Mobile/ios/.symlinks/
+
+# Test and tooling artifacts
+**/.nyc_output/
+**/test-results/
+**/playwright-report/
