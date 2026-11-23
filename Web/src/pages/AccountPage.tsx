@@ -4,6 +4,7 @@ import { useAuth } from '../auth/useAuth'
 import { FormStatus } from '../components/ui/FormStatus'
 import { PasswordField } from '../components/ui/PasswordField'
 import { SubmitButton } from '../components/ui/SubmitButton'
+import { ThemeToggle } from '../components/ui/ThemeToggle'
 import { getErrorMessage, getFormString } from '../lib/forms'
 
 export function AccountPage() {
@@ -63,14 +64,17 @@ export function AccountPage() {
           </span>
           <span>Odo</span>
         </Link>
-        <button
-          className="button button-secondary"
-          type="button"
-          disabled={isLoggingOut}
-          onClick={() => void handleLogout()}
-        >
-          {isLoggingOut ? 'Signing out…' : 'Sign out'}
-        </button>
+        <div className="header-actions">
+          <ThemeToggle />
+          <button
+            className="button button-secondary"
+            type="button"
+            disabled={isLoggingOut}
+            onClick={() => void handleLogout()}
+          >
+            {isLoggingOut ? 'Signing out…' : 'Sign out'}
+          </button>
+        </div>
       </header>
 
       <div className="account-content">

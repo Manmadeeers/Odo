@@ -5,6 +5,29 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="Odo helps cyclists record and explore their journeys." />
+  <script>
+    (() => {
+      const storageKey = 'odo.theme'
+      let theme
+
+      try {
+        const storedTheme = localStorage.getItem(storageKey)
+        theme =
+          storedTheme === 'light' || storedTheme === 'dark'
+            ? storedTheme
+            : undefined
+      } catch {
+        theme = undefined
+      }
+
+      theme ??= window.matchMedia('(prefers-color-scheme: dark)').matches
+        ? 'dark'
+        : 'light'
+
+      document.documentElement.dataset.theme = theme
+      document.documentElement.style.colorScheme = theme
+    })()
+  </script>
   <title>Odo</title>
 </head>
 

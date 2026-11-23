@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
+import { ThemeToggle } from '../ui/ThemeToggle'
 
 interface AuthLayoutProps {
   eyebrow?: string
@@ -18,6 +19,9 @@ export function AuthLayout({
 }: AuthLayoutProps) {
   return (
     <main className="auth-layout">
+      <div className="auth-theme-toggle">
+        <ThemeToggle />
+      </div>
       <section className="auth-story" aria-label="About Odo">
         <Link className="brand" to="/" aria-label="Odo home">
           <span className="brand-mark" aria-hidden="true">
